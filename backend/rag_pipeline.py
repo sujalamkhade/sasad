@@ -1,5 +1,5 @@
 # ===============================
-# Sansad RAG Pipeline (FINAL)
+# Sansad RAG Pipeline (FINAL – FIXED)
 # Local Embeddings + ChromaDB + Gemini Answering
 # ===============================
 
@@ -17,28 +17,31 @@ import pdfplumber
 from textwrap import wrap
 
 # ===============================
-# 1. ENV + PATHS
+# 1. ENV + PATHS (FIXED)
 # ===============================
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
 PDF_DIR = os.path.join(BASE_DIR, "data", "pdfs")
 CHROMA_DIR = os.path.join(BASE_DIR, "chroma_db")
 
+os.makedirs(PDF_DIR, exist_ok=True)
 os.makedirs(CHROMA_DIR, exist_ok=True)
-
-load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     print("❌ GEMINI_API_KEY not found in .env")
     sys.exit(1)
 
+print("✅ Environment loaded")
+
 # ===============================
 # 2. LOAD MODELS
 # ===============================
 
-print("🔧 Loading local embedding model (runs on your laptop)...")
+print("🔧 Loading local embedding model...")
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 print("✅ Embedding model ready")
 
@@ -64,25 +67,23 @@ collection = chroma_client.get_or_create_collection(
 # 4. HELPERS
 # ===============================
 
-def read_pdf_text(pdf_path):
+def read_pdf_text(pdf_path: str) -> str:
     """Extract text from PDF"""
     text = ""
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
-            if page.extract_text():
-                text += page.extract_text() + "\n"
-    return text
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+    return text.strip()
 
 
-def chunk_text(text, chunk_size=1200):
-    """
-    Split text into chunks
-    JS analogy: text.match(/.{1,500}/g)
-    """
+def chunk_text(text: str, chunk_size=1200):
+    """Split text into chunks"""
     return wrap(text, chunk_size)
 
 
-def embed_text(text):
+def embed_text(text: str):
     """Convert text → vector"""
     return embedding_model.encode(text).tolist()
 
@@ -91,7 +92,7 @@ def embed_text(text):
 # ===============================
 
 def ingest_pdfs():
-    pdf_files = [f for f in os.listdir(PDF_DIR) if f.endswith(".pdf")]
+    pdf_files = [f for f in os.listdir(PDF_DIR) if f.lower().endswith(".pdf")]
 
     if not pdf_files:
         print("⚠️ No PDFs found in data/pdfs")
@@ -104,16 +105,17 @@ def ingest_pdfs():
         pdf_path = os.path.join(PDF_DIR, pdf)
 
         text = read_pdf_text(pdf_path)
+        if not text:
+            print("⚠️ No extractable text, skipping")
+            continue
+
         chunks = chunk_text(text)
 
-        embeddings = []
-        documents = []
-        metadatas = []
-        ids = []
+        documents, embeddings, metadatas, ids = [], [], [], []
 
         for idx, chunk in enumerate(chunks):
-            embeddings.append(embed_text(chunk))
             documents.append(chunk)
+            embeddings.append(embed_text(chunk))
             metadatas.append({
                 "source": pdf,
                 "chunk": idx
@@ -168,7 +170,7 @@ def ask_question():
 You are a research assistant helping understand Indian Parliament sessions.
 
 Using ONLY the context below:
-- Identify key issues discussed and question asked
+- Identify key issues discussed
 - Mention dates if present
 - Summarize clearly in bullet points
 - If date is missing, say "date not specified"
